@@ -67,6 +67,7 @@ static char SccsId[] = "@(#)LUfft842.c	1.3\t01/31/02\tUSU";
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "fft842.h"
 
 /*  The following defines the largest size FFT that can be computed.
     This is 2^19 in length.  If this is changed, the code in fft842()
@@ -74,10 +75,10 @@ static char SccsId[] = "@(#)LUfft842.c	1.3\t01/31/02\tUSU";
 */
 #define MAX_SIZE_LOG_2 19
 
-typedef struct {
-	float re;
-	float im;
-}complx;
+// typedef struct {
+// 	float re;
+// 	float im;
+// }complx;
 
 static complx *stable;
 static float rsr2d;
