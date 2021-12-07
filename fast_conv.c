@@ -4,7 +4,6 @@
 #include <math.h>
 #include "filter.h"
 #include <time.h>
-// #include "cos_10.h"
 #include "fft842.h"
 /*
     Classic convolution:
@@ -25,19 +24,6 @@ typedef struct
  int d2;  //length of third dimension 
 } dsp_file_header; 
 
-// Function to reverse elements of an array
-void reverse(float arr[], int n)
-{
-    float aux[n];
- 
-    for (int i = 0; i < n; i++) {
-        aux[n - 1 - i] = arr[i];
-    }
- 
-    for (int i = 0; i < n; i++) {
-        arr[i] = aux[i];
-    }
-}
 
 /**
  * @brief Convolution function
@@ -62,6 +48,24 @@ float* conv(float* x, float* h, float* y, int Lx, int Lh, int Ly){
     }
     return y;
 }
+
+unsigned int nextPowerOf2(unsigned int n){
+    unsigned count = 0;
+    
+    // First n in the below condition
+    // is for the case where n is 0
+    if (n && !(n & (n - 1)))
+        return n;
+    
+    while( n != 0)
+    {
+        n >>= 1;
+        count += 1;
+    }
+    
+    return 1 << count;
+}
+ 
 
 void main(int argc, char** argv){
     //read in file
@@ -90,34 +94,57 @@ void main(int argc, char** argv){
     printf("ndim = %d, nchan = %d, d0 = %d, d1 = %d, d2 = %d\n", h0.ndim, h0.nchan, h0.d0, h0.d1, h0.d2);
     int Lh = sizeof(filter)/sizeof(filter[0]);//length of impulse signal 
     int Lx = h0.d0; //length of input signal 
-    int Ly = Lx + (Lh - 1); //len of conv result 
-    int Lz = Lx + 2 * (Lh - 1); //len of zero padded input 
-    printf("Lh = %d, Lx = %d, Ly = %d, Lz = %d\n", Lh, Lx, Ly, Lz); 
+    Lx = nextPowerOf2(Lx);
+    int diff = (Lx - h0.d0)/2;
+    int Ly = h0.d0 + (Lh - 1); //len of conv result 
+    int Lw = Lx + (Lh-1);
+    int Lz = h0.d0 + 2 * (Lh - 1); //len of zero padded input 
+    printf("Lh = %d, Lx = %d, Ly = %d, Lz = %d, h0.d0 = %d\n", Lh, Lx, Ly, Lz, h0.d0); 
 
     //allocate data space
-    float* x = calloc(sizeof(float), Lz);
-    float* z = calloc(sizeof(float), Lx);
+    float* x = calloc(sizeof(float), Lz); //for conv
+    float* pad_h = calloc(sizeof(float), h0.d0); 
+    float* z = calloc(sizeof(float), Lx); //for fft
     float* y = calloc(sizeof(float), Ly);
 
     while (!feof(fx)) { 
-        fread((x + Lh - 1), sizeof(float), Lx, fx); //pulls in data when H0 is present, hence x+Lh-1 
+        fread((x + Lh - 1), sizeof(float), h0.d0, fx); 
+        // fread((x), sizeof(float), h0.d0, fx); 
     } 
-    for(int i = 0; i < Lx; i++){
+    for(int i = 0; i < Ly; i++){
         z[i] = x[i+Lh-1];
     }
-    //-------------------filter work----------------------------------
-    float* h_1 = calloc(sizeof(float), Lh);
+    int Lpad = (h0.d0 - Lh)/2;
+    printf("Lpad = %d\n", Lpad);
     for(int i = 0; i < Lh; i++){
-        h_1[i] = filter[(Lh-1)-i];
+        pad_h[i+Lpad-1] = filter[i];
     }
-    y = conv(x, h_1, y, Lz, Lh, Ly);
-    fwrite(y, sizeof(float), Ly, fy); 
-    printf("Done.\n");
+    //-------------------filter work - linear convolution----------------------------------
+    // float* h_1 = calloc(sizeof(float), Lh);
+    // for(int i = 0; i < Lh; i++){
+    //     h_1[i] = filter[(Lh-1)-i];
+    // }
+    // y = conv(x, h_1, y, Lz, Lh, Ly);
+    // fwrite(y, sizeof(float), Ly, fy); 
+    // printf("Done.\n");
 
+    // //------------------filter work - circular convolution --------------------------------
+    printf("Start Circ Conv\n");
+    clock_t begin = clock();
+    for (int i = 0; i < h0.d0; i++) { 
+        for (int j = 0; j < Lh; j++) { 
+            y[i] +=  filter[j]*x[(i-j)%h0.d0];
+        } 
+    }
+    clock_t end = clock();
+    double time_spent = (double)(end - begin)/CLOCKS_PER_SEC;
+
+    printf("Time of circular convolution = %0.20fs\n", time_spent);
+    fwrite(y, sizeof(float), Ly, fy);
     //-------------------fft842.c work--------------------------------
     complx* cosine = calloc(sizeof(complx), Lx);
     complx* h = calloc(sizeof(complx), Lx);
-    complx* output = calloc(sizeof(complx), Lx);
+    complx* output = calloc(sizeof(complx), Lx); 
     float* fft_out = calloc(sizeof(float), Lx);
     for(int i = 0; i < Lx; i++){
         cosine[i].re = z[i];
@@ -128,15 +155,18 @@ void main(int argc, char** argv){
         h[i].im = 0;
     }
     printf("Start FFT\n");
+    clock_t begin1 = clock();
     fft842(0, Lx, cosine);
-
     fft842(0, Lx, h);
-
+    // printf("Length of H = %d, Length of X = %d\n", sizeof(h), sizeof(cosine));
     for(int i = 0; i < Lx; i++){
         output[i].re = cosine[i].re*h[i].re;
         output[i].im = cosine[i].im*h[i].im;
     }
     fft842(1, Lx, output);
+    clock_t end1 = clock();
+    double time_spent1 = (double)(end1 - begin1)/CLOCKS_PER_SEC;
+    printf("Time of fft = %0.20fs\n", time_spent1);
     for(int i = 0; i < Lx; i++){
         fft_out[i] = output[i].re;
     }
