@@ -111,8 +111,8 @@ void main(int argc, char** argv){
         fread((x + Lh - 1), sizeof(float), h0.d0, fx); 
         // fread((x), sizeof(float), h0.d0, fx); 
     } 
-    for(int i = 0; i < Ly; i++){
-        z[i] = x[i+Lh-1];
+    for(int i = 0; i < Lx; i++){
+        z[i] = x[i+Lh-1]; //z is no zero padding x
     }
     int Lpad = (h0.d0 - Lh)/2;
     printf("Lpad = %d\n", Lpad);
@@ -141,34 +141,66 @@ void main(int argc, char** argv){
 
     printf("Time of circular convolution = %0.20fs\n", time_spent);
     fwrite(y, sizeof(float), Ly, fy);
+    free(y);free(pad_h);
     //-------------------fft842.c work--------------------------------
-    complx* cosine = calloc(sizeof(complx), Lx);
+    // complx* cosine = calloc(sizeof(complx), Lx);
     complx* h = calloc(sizeof(complx), Lx);
-    complx* output = calloc(sizeof(complx), Lx); 
+    // complx* output = calloc(sizeof(complx), Lx); 
     float* fft_out = calloc(sizeof(float), Lx);
-    for(int i = 0; i < Lx; i++){
-        cosine[i].re = z[i];
-        cosine[i].im = 0;
-    }
+    // for(int i = 0; i < Lx; i++){
+    //     cosine[i].re = z[i];
+    //     cosine[i].im = 0;
+    // }
     for(int i = 0; i < Lh; i++){
         h[i].re = filter[i];
         h[i].im = 0;
     }
+    //overlap add
+    int L = 256; //to find step size
+    int k = Lx/Lh; //number of segments divided out for overlap add
+    printf("Lx = %d, L = %d, k = %d\n",Lx,L,k);
+    // float** x_add = calloc(sizeof(float*), k); //2d allocated array
+    float ** x_add = (float **)calloc(k, sizeof(float *));
+    // complx** x_add_fft = calloc(sizeof(complx*), k);
+    complx ** x_add_fft = (complx **)calloc(k, sizeof(complx*));
+    // complx** y_add = calloc(sizeof(complx*), k);
+    complx** y_add = calloc(k, sizeof(complx *));
+    for(int i = 0; i < k; i++){
+        x_add[i] = (float *)calloc(L, sizeof(float));
+        x_add_fft[i] = (complx *)calloc(L, sizeof(complx));
+        y_add[i] = (complx *)calloc(L, sizeof(complx));
+    }
+    printf("Start overlap.\n");
+    for (int m = 0; m < k; m++){
+        for(int i = 0; i < L; i++){
+            // printf("i = %d\n",i);
+            x_add[m][i] = z[i+m*L]; //separate x into segments of L, no zero padding input
+            x_add_fft[m][i].re = x_add[m][i];
+            x_add_fft[m][i].im = 0;
+        }
+        printf("m = %d\n", m);
+    }
     printf("Start FFT\n");
     clock_t begin1 = clock();
-    fft842(0, Lx, cosine);
-    fft842(0, Lx, h);
-    // printf("Length of H = %d, Length of X = %d\n", sizeof(h), sizeof(cosine));
-    for(int i = 0; i < Lx; i++){
-        output[i].re = cosine[i].re*h[i].re;
-        output[i].im = cosine[i].im*h[i].im;
+    for(int m = 0; m < k; m++){ //fft of each segmet
+        fft842(0, L, x_add_fft[m]); 
     }
-    fft842(1, Lx, output);
+    fft842(0, Lx, h);
+    // fft842(0, Lx, cosine);
+    for(int m = 0; m < k; m++){
+        for(int i = 0; i < Lx; i++){
+            y_add[m][i].re = x_add_fft[m][i].re*h[i].re;
+            y_add[m][i].im = x_add_fft[m][i].im*h[i].im;
+        }
+        fft842(1, Lx, y_add[m]);
+    }
     clock_t end1 = clock();
     double time_spent1 = (double)(end1 - begin1)/CLOCKS_PER_SEC;
     printf("Time of fft = %0.20fs\n", time_spent1);
-    for(int i = 0; i < Lx; i++){
-        fft_out[i] = output[i].re;
+    for(int m = 0; m < k; m++){
+        for(int i = 0; i < Lx; i++){
+            fft_out[i] += y_add[m][i-m*L].re;
+        }
     }
     fwrite(fft_out, sizeof(float), Lx, ff);
 
