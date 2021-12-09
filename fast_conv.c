@@ -103,7 +103,6 @@ void main(int argc, char** argv){
     //allocate data space
     float* x = calloc(sizeof(float), Lz); //for conv
     float* pad_h = calloc(sizeof(float), h0.d0); 
-    float* z = calloc(sizeof(float), h0.d0+Lh-1); //for fft
     float* y = calloc(sizeof(float), Ly);
 
     while (!feof(fx)) { 
@@ -140,9 +139,12 @@ void main(int argc, char** argv){
     // free(y);free(pad_h);
     //-------------------fft842.c work--------------------------------
     //overlap save
-    int L = 769;
+    int L = 257;
     int N = L+Lh-1;
-    int k = (h0.d0+Lh-1)/(L); //number of segments divided out for overlap add
+    float seg = (h0.d0)/(L); //number of segments divided out for overlap add
+    int k = (int)seg;
+    int x_pad_for_N = L - (h0.d0 - L*k); //need to add to end of x
+    k++;
     printf("Lx = %d, L = %d, k = %d\n",Lx,L,k);
     float ** x_s = (float **)calloc(k, sizeof(float *));
     complx ** x_s_fft = (complx **)calloc(k, sizeof(complx*));
@@ -152,6 +154,7 @@ void main(int argc, char** argv){
         x_s_fft[i] = (complx *)calloc(N, sizeof(complx)); //make into 2d array
         y_s[i] = (complx *)calloc(N, sizeof(complx)); //make into 2d array
     }
+    float* z = calloc(sizeof(float), h0.d0+Lh-1+x_pad_for_N); //for fft
     printf("Start overlap.\n");
     //insert Lh-1 zeros
     for(int i = 0; i < h0.d0+Lh-1; i++){
@@ -209,7 +212,7 @@ void main(int argc, char** argv){
         for(int i = 0; i < N; i++){
             y_s[m][i].re = x_s_fft[m][i].re*h[i].re;
             y_s[m][i].im = x_s_fft[m][i].im*h[i].im;
-            printf("y_s[%d][%d].re = %f\tx_s_fft[%d][%i].re = %f\th[%d] = %f\n",m,i,y_s[m][i].re,m,i,x_s_fft[m][i].re,i,h[i].re);
+            // printf("y_s[%d][%d].re = %f\tx_s_fft[%d][%i].re = %f\th[%d] = %f\n",m,i,y_s[m][i].re,m,i,x_s_fft[m][i].re,i,h[i].re);
         }
         fft842(1, N, y_s[m]);
         
@@ -223,10 +226,6 @@ void main(int argc, char** argv){
             y_out[i+m*(L-1)] = y_s[m][i+Lh-1].re;
             // printf("m = %d\ti = %d\ty_out[%d] = %f\ty_s[%d][%d].re = %f\n",m,i,i+m*(L-1),y_out[i+m*(L-1)],m,i+Lh-1,y_s[m][i+Lh-1].re);
             // printf("i = %d\n", i+Lh-1);
-
-            //CURRENT PROBLEM: OUTPUT DOES NOT GO TO LENGTH 4096. 
-
-
         }
     }
     fwrite(y_out, sizeof(float), Lx, ff);
