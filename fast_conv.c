@@ -140,9 +140,9 @@ void main(int argc, char** argv){
     // free(y);free(pad_h);
     //-------------------fft842.c work--------------------------------
     //overlap save
-    int L = 257;
+    int L = 769;
     int N = L+Lh-1;
-    int k = h0.d0/(N); //number of segments divided out for overlap add
+    int k = (h0.d0+Lh-1)/(L); //number of segments divided out for overlap add
     printf("Lx = %d, L = %d, k = %d\n",Lx,L,k);
     float ** x_s = (float **)calloc(k, sizeof(float *));
     complx ** x_s_fft = (complx **)calloc(k, sizeof(complx*));
@@ -176,16 +176,19 @@ void main(int argc, char** argv){
     printf("Start FFT\n");
     complx* h = calloc(sizeof(complx), N);//does not allocate zeros!
     float* h_1 = calloc(sizeof(float), N);
+    int j = 0;
     for(int i = 0; i < N; i++){
-        if((i < (Lh-1)/2) || (i > (Lh-1/2))){
+        // printf("i = %d\n",i);
+        if((i < (L-1)/2) || (i > ((L-1)/2)+Lh-1)){
             h[i].re = 0;
             h[i].im = 0;
         }
         else{
-            h[i].re = filter[i];
-            // printf("h[%d].re = %f\n",i+((L-1)/2),h[i+(L-1)/2].re);
+            h[i].re = filter[j];
             h[i].im = 0;
+            j++;
         }
+        // printf("h[%d].re = %f\n",i,h[i].re);
     }
     fft842(0, N, h); //N-point dft
     for(int m = 0; m < k; m++){
@@ -206,7 +209,7 @@ void main(int argc, char** argv){
         for(int i = 0; i < N; i++){
             y_s[m][i].re = x_s_fft[m][i].re*h[i].re;
             y_s[m][i].im = x_s_fft[m][i].im*h[i].im;
-            // printf("y_s[%d][%d].re = %f\tx_s_fft[%d][%i].re = %f\th[%d] = %f\n",m,i,y_s[m][i].re,m,i,x_s_fft[m][i].re,i,h[i].re);
+            printf("y_s[%d][%d].re = %f\tx_s_fft[%d][%i].re = %f\th[%d] = %f\n",m,i,y_s[m][i].re,m,i,x_s_fft[m][i].re,i,h[i].re);
         }
         fft842(1, N, y_s[m]);
         
@@ -218,7 +221,7 @@ void main(int argc, char** argv){
     for(int m = 0; m < k; m++){
         for(int i = 0; i < L; i++){
             y_out[i+m*(L-1)] = y_s[m][i+Lh-1].re;
-            printf("m = %d\ti = %d\ty_out[%d] = %f\ty_s[%d][%d].re = %f\n",m,i,i+m*(L-1),y_out[i+m*(L-1)],m,i+Lh-1,y_s[m][i+Lh-1].re);
+            // printf("m = %d\ti = %d\ty_out[%d] = %f\ty_s[%d][%d].re = %f\n",m,i,i+m*(L-1),y_out[i+m*(L-1)],m,i+Lh-1,y_s[m][i+Lh-1].re);
             // printf("i = %d\n", i+Lh-1);
 
             //CURRENT PROBLEM: OUTPUT DOES NOT GO TO LENGTH 4096. 
