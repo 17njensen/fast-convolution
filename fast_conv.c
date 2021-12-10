@@ -5,16 +5,6 @@
 #include "filter.h"
 #include <time.h>
 #include "fft842.h"
-/*
-    Classic convolution:
-        -Number of multiplies and adds:
-            Lh-1 adds
-            Lh-1 multiplys
-
-
-
-
-*/
 typedef struct 
 { 
  int ndim; //number of dimensions 
@@ -114,38 +104,34 @@ void main(int argc, char** argv){
     for(int i = 0; i < Lh; i++){
         pad_h[i+Lpad-1] = filter[i];
     }
-    //-------------------filter work - linear convolution----------------------------------
-    // float* h_1 = calloc(sizeof(float), Lh);
-    // for(int i = 0; i < Lh; i++){
-    //     h_1[i] = filter[(Lh-1)-i];
-    // }
-    // y = conv(x, h_1, y, Lz, Lh, Ly);
-    // fwrite(y, sizeof(float), Ly, fy); 
-    // printf("Done.\n");
 
-    // //------------------filter work - circular convolution --------------------------------
-    // printf("Start Circ Conv\n");
-    // clock_t begin = clock();
-    // for (int i = 0; i < h0.d0; i++) { 
-    //     for (int j = 0; j < Lh; j++) { 
-    //         y[i] +=  filter[j]*x[(i-j)%h0.d0];
-    //     } 
-    // }
-    // clock_t end = clock();
-    // double time_spent = (double)(end - begin)/CLOCKS_PER_SEC;
+    // //------------------filter work --------------------------------
+    printf("Start Circ Conv\n");
+    clock_t begin = clock();
+    for (int i = 0; i < h0.d0; i++) { 
+        for (int j = 0; j < Lh; j++) { 
+            y[i] +=  filter[j]*x[(i-j)%h0.d0];
+        } 
+            printf("y[%d] = %f\n",i,y[i]);
+    }
+    clock_t end = clock();
+    double time_spent = (double)(end - begin)/CLOCKS_PER_SEC;
 
-    // printf("Time of circular convolution = %0.20fs\n", time_spent);
-    // fwrite(y, sizeof(float), Ly, fy);
-    // free(y);free(pad_h);
+    printf("Time of circular convolution = %0.20fs\n", time_spent);
+    fwrite(y, sizeof(float), Ly, fy);
+    free(y);free(pad_h);
     //-------------------fft842.c work--------------------------------
     //overlap save
     int L = 257;
     int N = L+Lh-1;
+    int a = h0.d0;
+    int Lpow = nextPowerOf2(h0.d0);
+    int diff = Lpow - a;
     float seg = (h0.d0)/(L); //number of segments divided out for overlap add
     int k = (int)seg;
     int x_pad_for_N = L - (h0.d0 - L*k); //need to add to end of x
     k++;
-    printf("Lx = %d, L = %d, k = %d\n",Lx,L,k);
+    printf("Lx = %d, L = %d, k = %d, diff = %d\n",h0.d0,L,k,diff);
     float ** x_s = (float **)calloc(k, sizeof(float *));
     complx ** x_s_fft = (complx **)calloc(k, sizeof(complx*));
     complx** y_s = calloc(k, sizeof(complx *));
@@ -154,12 +140,13 @@ void main(int argc, char** argv){
         x_s_fft[i] = (complx *)calloc(N, sizeof(complx)); //make into 2d array
         y_s[i] = (complx *)calloc(N, sizeof(complx)); //make into 2d array
     }
-    float* z = calloc(sizeof(float), h0.d0+Lh-1+x_pad_for_N); //for fft
+    float* z = calloc(sizeof(float), h0.d0+Lh-1+x_pad_for_N+2*(diff)); //for fft
     printf("Start overlap.\n");
     //insert Lh-1 zeros
     for(int i = 0; i < h0.d0+Lh-1; i++){
-        z[i] = x[i];
+        z[i+diff] = x[i];
     }
+    printf("z has been padded\n");
     //segment input x
     for(int r = 0; r < k; r++){
         // printf("r = %d\n",r);
@@ -169,8 +156,8 @@ void main(int argc, char** argv){
                 // printf("z[%d] = %f\t",i,z[i]);
             }
             else{
-                x_s[r][i] = z[i+r*(L+Lh-1)-Lh+1]; //segment x into blocks of length L+Lh-1
-                // printf("z[%d] = %f\t",i+r*(L+Lh-1)-Lh+1,z[i+r*(L+Lh-1)-Lh+1]);
+                x_s[r][i] = z[i+r*(L)+Lh-1-Lh-1]; //segment x into blocks of length L+Lh-1
+                // printf("z[%d] = %f\t\n",i+r*(L+Lh-1)-Lh+1,z[i+r*(L+Lh-1)-Lh+1]);
             }
             // printf("x_s[%d][%d] = %f\n",r,i,x_s[r][i]);
         }
@@ -197,14 +184,13 @@ void main(int argc, char** argv){
     for(int m = 0; m < k; m++){
         for(int i = 0; i < N; i++){
             x_s_fft[m][i].re = x_s[m][i];
-            printf("x_s_fft[%d][%d].re = %f\tx_s[%d][%i] = %f\n",m,i,x_s_fft[m][i].re,m,i,x_s[m][i]);
+            // printf("x_s_fft[%d][%d].re = %f\tx_s[%d][%i] = %f\n",m,i,x_s_fft[m][i].re,m,i,x_s[m][i]);
             x_s_fft[m][i].im = 0;
         }
     }
     clock_t begin1 = clock();
     for(int m = 0; m < k; m++){ //fft of each segment
         fft842(0, N, x_s_fft[m]); 
-        // fwrite(x_s_fft[m], sizeof(float), N, ff);
         // printf("m = %d\n", m);
     }
     
